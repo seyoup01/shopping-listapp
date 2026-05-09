@@ -148,26 +148,35 @@
     <ul id="list"></ul>
   </div>
 
-<script>
-  const STORAGE_KEY = "shopping-list-items";
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+  const SUPABASE_URL = "https://xrvluojtyiqxvbcgxnsj.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_G5T1SOYXCftB5_pZZQu-9A_pHR5MN2G";
+  const TABLE = "shopping_items";
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
   const input = document.getElementById("item-input");
   const addBtn = document.getElementById("add-btn");
   const list = document.getElementById("list");
   const countEl = document.getElementById("count");
   const clearBtn = document.getElementById("clear-btn");
 
-  let items = loadItems();
+  let items = [];
 
-  function loadItems() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-    } catch {
-      return [];
+  async function loadItems() {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select("id, text, checked, created_at")
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("Failed to load items:", error);
+      countEl.textContent = "불러오기 실패";
+      return;
     }
-  }
-
-  function saveItems() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    items = data ?? [];
+    render();
   }
 
   function render() {
@@ -208,36 +217,67 @@
     countEl.textContent = `${items.length}개 항목 (완료 ${checkedCount})`;
   }
 
-  function addItem() {
+  async function addItem() {
     const text = input.value.trim();
     if (!text) return;
-    items.push({ id: crypto.randomUUID(), text, checked: false });
+    addBtn.disabled = true;
+    const { data, error } = await supabase
+      .from(TABLE)
+      .insert({ text, checked: false })
+      .select()
+      .single();
+    addBtn.disabled = false;
+    if (error) {
+      console.error("Failed to add item:", error);
+      alert("항목 추가에 실패했습니다.");
+      return;
+    }
+    items.push(data);
     input.value = "";
-    saveItems();
     render();
     input.focus();
   }
 
-  function toggleItem(id) {
+  async function toggleItem(id) {
     const item = items.find((i) => i.id === id);
-    if (item) {
-      item.checked = !item.checked;
-      saveItems();
+    if (!item) return;
+    const next = !item.checked;
+    item.checked = next;
+    render();
+    const { error } = await supabase
+      .from(TABLE)
+      .update({ checked: next })
+      .eq("id", id);
+    if (error) {
+      console.error("Failed to toggle item:", error);
+      item.checked = !next;
       render();
     }
   }
 
-  function deleteItem(id) {
+  async function deleteItem(id) {
+    const prev = items;
     items = items.filter((i) => i.id !== id);
-    saveItems();
     render();
+    const { error } = await supabase.from(TABLE).delete().eq("id", id);
+    if (error) {
+      console.error("Failed to delete item:", error);
+      items = prev;
+      render();
+    }
   }
 
-  function clearAll() {
+  async function clearAll() {
     if (items.length === 0) return;
-    if (confirm("모든 항목을 삭제하시겠습니까?")) {
-      items = [];
-      saveItems();
+    if (!confirm("모든 항목을 삭제하시겠습니까?")) return;
+    const ids = items.map((i) => i.id);
+    const prev = items;
+    items = [];
+    render();
+    const { error } = await supabase.from(TABLE).delete().in("id", ids);
+    if (error) {
+      console.error("Failed to clear items:", error);
+      items = prev;
       render();
     }
   }
@@ -248,7 +288,7 @@
   });
   clearBtn.addEventListener("click", clearAll);
 
-  render();
+  loadItems();
   input.focus();
 </script>
 </body>
